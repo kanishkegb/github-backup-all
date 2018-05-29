@@ -22,14 +22,13 @@ Backup will have the following structure:
 
 ## Setting-Up
   1. Install dependencies
-    ```
-    pip install pygithub # GitHub API
-    ```
-  2. Create a [personal access token](https://help.github.com/articles/creating-a-personal-access-token-for-the-command-line/) for GitHub. Copy the token and do the following in the terminal before running the code.
+  ```
+  pip install pygithub # GitHub API
+  ```
+  2. Create a [personal access token](https://help.github.com/articles/creating-a-personal-access-token-for-the-command-line/) for GitHub. Copy the token and do the following in the terminal before running the code. You MUST to do this every time you run the code. You can skip this if you add the line to `~/.bashrc` or `~/.zshrc`.
   ```
   export GH_ACCSS_TKN=personal_access_token_generated_in_GitHub
   ```
-  You have to do this every time you run the code. You can skip this if you add the above line to `~/.bashrc` or `~/.zshrc`.
   3. make sure that you are connected to GitHub with an [ssh key](https://help.github.com/articles/connecting-to-github-with-ssh/).
 
 ## Backing-Up
