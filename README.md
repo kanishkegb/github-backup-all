@@ -29,10 +29,15 @@ Backup will have the following structure:
   ```
   export GH_ACCSS_TKN=personal_access_token_generated_in_GitHub
   ```
-  3. make sure that you are connected to GitHub with an [ssh key](https://help.github.com/articles/connecting-to-github-with-ssh/).
+  3. Make sure that you are connected to GitHub with an [ssh key](https://help.github.com/articles/connecting-to-github-with-ssh/).
 
 ## Backing-Up
-Run the code
+Run the code:
 ```
 python backup_github_repos.py
+```
+
+For help and arguments, run:
+```
+python backup_github_repos.py -h
 ```
