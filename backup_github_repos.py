@@ -208,7 +208,7 @@ if __name__ == '__main__':
             'Backsup all the repositories in GitHub to a local directory'))
     parser.add_argument(
         '-p', '--path',
-        default=['~/Documents/GitHub'],
+        default=['/mnt/d/Sync/GitHub'],
         nargs=1,
         help='specify the path for the backup')
     args = parser.parse_args()
@@ -218,7 +218,7 @@ if __name__ == '__main__':
         parser.print_help()
 
     print('Backup will be created in path {}'.format(path))
-    answer = input('Confirm the path [Y/n]: ')
+    answer = raw_input('Confirm the path [Y/n]: ')
     if not answer == 'Y':
         sys.exit(1)
 
