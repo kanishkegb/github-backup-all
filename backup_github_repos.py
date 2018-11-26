@@ -131,7 +131,7 @@ def get_orgs(g):
     return orgs
 
 
-def print_sammary(num_personal_repos, num_contributed_repos, orgs):
+def print_summary(num_personal_repos, num_contributed_repos, orgs, exceptions):
     '''
     Prints the summary of the backup process
 
@@ -139,6 +139,7 @@ def print_sammary(num_personal_repos, num_contributed_repos, orgs):
         num_personal_repos: (int) number of personal repositories
         num_contributed_repos: (int) number of contributed repositories
         orgs: (dict) dictionary containing organization data
+        exceptions: (list) repos with issues and not cloned
     Returns:
         None
     '''
@@ -151,11 +152,22 @@ def print_sammary(num_personal_repos, num_contributed_repos, orgs):
     print('Updated {} contributed repos'.format(num_contributed_repos))
 
     for org in orgs['org_list']:
-        print('Updated {} {} repos'.format(orgs['num_{}_repos'.format(org)], org))
+        print('Updated {} {} repos'.format(orgs['num_{}_repos'.format(org)], 
+            org))
+    
+    N = len(exceptions)
+    if N:
+        print('\n======================================\n')
+        print('Following repositories were not cloned/updated.\nPlease '
+            'manually backup them.\n')
+        
+        for i, repo in enumerate(exceptions):
+            print('{}. {}'.format(i + 1, repo))
 
     print('\n======================================\n')
 
     return
+
 
 def main(path):
 
@@ -175,30 +187,38 @@ def main(path):
 
     num_personal_repos = 0
     num_contributed_repos = 0
+    exception_list = []
     for repo in repos:
         owner = repo.owner.login
-        os.chdir(path)
-        if owner == user:
-            print('\nOwned repo: {}'.format(repo.name))
-            sub_dir = get_sub_dir(path, 'personal')
-            num_personal_repos += 1
-            clone_or_update(repo, sub_dir)
+        
+        try:
+            os.chdir(path)
+            if owner == user:
+                print('\nOwned repo: {}'.format(repo.name))
+                sub_dir = get_sub_dir(path, 'personal')
+                num_personal_repos += 1
+                clone_or_update(repo, sub_dir)
 
-        else:
-            for mem in repo.get_contributors():
-                if mem.login == user:
-                    if owner in orgs_list:
-                        print('\n{} repo: {}'.format(owner, repo.name))
-                        sub_dir = get_sub_dir(path, owner)
-                        orgs['num_{}_repos'.format(owner)] += 1
-                        clone_or_update(repo, sub_dir)
-                    else:
-                        print('\nContributed repo: {}'.format(repo.name))
-                        sub_dir = get_sub_dir(path, 'contributed')
-                        num_contributed_repos += 1
-                        clone_or_update(repo, sub_dir)
+            else:
+                for mem in repo.get_contributors():
+                    if mem.login == user:
+                        if owner in orgs_list:
+                            print('\n{} repo: {}'.format(owner, repo.name))
+                            sub_dir = get_sub_dir(path, owner)
+                            orgs['num_{}_repos'.format(owner)] += 1
+                            clone_or_update(repo, sub_dir)
+                        else:
+                            print('\nContributed repo: {}'.format(repo.name))
+                            sub_dir = get_sub_dir(path, 'contributed')
+                            num_contributed_repos += 1
+                            clone_or_update(repo, sub_dir)
+        except:
+            print('Error cloning/updating {}'.format(repo.name))
+            exception_list.append(repo.name)
 
-    print_sammary(num_personal_repos, num_contributed_repos, orgs)
+
+    print_summary(num_personal_repos, num_contributed_repos, orgs,
+            exception_list)
 
 
 if __name__ == '__main__':
@@ -211,6 +231,10 @@ if __name__ == '__main__':
         default=['/mnt/d/Sync/GitHub'],
         nargs=1,
         help='specify the path for the backup')
+    parser.add_argument(
+        '-d', '--default',
+        default=False, action='store_true',
+        help='use default settings')
     args = parser.parse_args()
     path = args.path[0]
 
@@ -218,7 +242,7 @@ if __name__ == '__main__':
         parser.print_help()
 
     print('Backup will be created in path {}'.format(path))
-    answer = raw_input('Confirm the path [Y/n]: ')
+    answer = input('Confirm the path [Y/n]: ')
     if not answer == 'Y':
         sys.exit(1)
 
