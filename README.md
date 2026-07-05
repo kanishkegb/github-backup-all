@@ -21,10 +21,13 @@ Backup will have the following structure:
 ```
 
 ## Setting-Up
-  1. Install dependencies
+  1. Create and activate a virtual environment, then install dependencies into it
   ```
-  pip install pygithub # GitHub API
+  python3 -m venv .venv          # create the virtual environment
+  source .venv/bin/activate     # on Windows: .venv\Scripts\activate
+  pip install PyGithub          # GitHub API
   ```
+  Activate the same environment (`source .venv/bin/activate`) in every new terminal before running the code.
   2. Create a [personal access token](https://help.github.com/articles/creating-a-personal-access-token-for-the-command-line/) for GitHub. Copy the token and do the following in the terminal before running the code. You MUST to do this every time you run the code. You can skip this if you add the line to `~/.bashrc` or `~/.zshrc`.
   ```
   export GH_ACCSS_TKN=personal_access_token_generated_in_GitHub
@@ -34,10 +37,10 @@ Backup will have the following structure:
 ## Backing-Up
 Run the code:
 ```
-python backup_github_repos.py
+python3 backup_github_repos.py
 ```
 
 For help and arguments, run:
 ```
-python backup_github_repos.py -h
+python3 backup_github_repos.py -h
 ```

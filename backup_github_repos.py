@@ -2,248 +2,232 @@ from github import Github
 
 import argparse
 import os
+import subprocess
 import sys
 
 
 def parse_path(path):
     '''
-    Parses the input path to make sure that the path is OS independent.
+    Normalize a user-supplied path into an absolute, OS-independent path.
+
+    Expands a leading ``~`` to the user's home directory and resolves any
+    relative components against the current working directory.
 
     Args:
-        path: (str) path to be parsed
+        path: (str) path to be normalized
 
     Returns:
-        parsed_path: (str) path parsed using os.path.join
+        (str) absolute, normalized path
     '''
 
-    parsed_path = '/'
-    for dir in path.split('/'):
-        parsed_path = os.path.join(parsed_path, dir)
-
-    return parsed_path
+    return os.path.abspath(os.path.expanduser(path))
 
 
 def clone_repo(repo, repo_path):
     '''
-    Clones a repo and updates if it has submodules
+    Clone a repository into ``repo_path`` and initialize its submodules.
 
     Args:
-        repo: (object) repo needs to be clones or updated
-        repo_path: (str) path where the repo needs to be cloned
+        repo: (github.Repository) repository to clone
+        repo_path: (str) destination directory for the clone
 
     Returns:
         None
+
+    Raises:
+        subprocess.CalledProcessError: if ``git clone`` or the submodule
+            update exits with a non-zero status.
     '''
 
-    print('cloning at {}'.format(repo_path))
+    print(f'Cloning into {repo_path}')
 
-    os.system('git clone {}'.format(repo.ssh_url))
-    os.chdir(repo_path)
+    subprocess.run(['git', 'clone', repo.ssh_url, repo_path], check=True)
     if os.path.exists(os.path.join(repo_path, '.gitmodules')):
-        os.system('git submodule update --init')
-
-    return
+        subprocess.run(
+            ['git', 'submodule', 'update', '--init'],
+            cwd=repo_path, check=True)
 
 
 def update_repo(repo_path):
     '''
-    Pulls from a remote repo and updates if it has submodules.
+    Pull the latest changes for an existing clone and refresh its submodules.
 
     Args:
-        repo_path: (str) path for repo needs to be updated
+        repo_path: (str) path to the existing local clone
 
     Returns:
         None
+
+    Raises:
+        subprocess.CalledProcessError: if ``git pull`` or the submodule
+            update exits with a non-zero status.
     '''
 
-    print('updating {}'.format(repo_path))
+    print(f'Updating {repo_path}')
 
-    os.chdir(repo_path)
-    os.system('git pull --all')
+    subprocess.run(['git', 'pull', '--all'], cwd=repo_path, check=True)
     if os.path.exists(os.path.join(repo_path, '.gitmodules')):
-        os.system('git submodule update')
+        subprocess.run(
+            ['git', 'submodule', 'update'], cwd=repo_path, check=True)
 
-    return
 
-
-def clone_or_update(repo, path):
+def clone_or_update(repo, dest_dir):
     '''
-    Clones the repo is it does not exist, if exists, update the repo
+    Clone ``repo`` into ``dest_dir`` if absent, otherwise update it in place.
 
     Args:
-        repo: (object) repo needs to be clones or updated
-        path: (str) path where the repo needs to be cloned
+        repo: (github.Repository) repository to back up
+        dest_dir: (str) directory that holds the local clone
 
     Returns:
         None
     '''
 
-    os.chdir(path)
-    repo_path = os.path.join(path, repo.name)
-
+    repo_path = os.path.join(dest_dir, repo.name)
 
     if os.path.isdir(repo_path):
         update_repo(repo_path)
     else:
         clone_repo(repo, repo_path)
 
-    os.chdir(path)
 
-    return
-
-
-def get_sub_dir(path, sub_dir_name):
+def ensure_sub_dir(parent, name):
     '''
-    Create subdirectories if they do not exist, and returns the OS safe parsed
-    sub directory path
+    Return the path to a subdirectory of ``parent``, creating it if needed.
 
     Args:
-        path: (str) path of the parent directory
-        sub_dir_name: (str) name of the subdirectory
+        parent: (str) path of the parent directory
+        name: (str) name of the subdirectory
 
     Returns:
-        sub_dir: (str) OS safe subdirectory
+        (str) absolute path to the subdirectory
     '''
 
-    sub_dir = os.path.join(path, sub_dir_name)
-
-    if not os.path.isdir(sub_dir):
-        os.system('mkdir {}'.format(sub_dir_name))
+    sub_dir = os.path.join(parent, name)
+    os.makedirs(sub_dir, exist_ok=True)
 
     return sub_dir
 
 
-def get_orgs(g):
+def classify_repo(repo, user, org_logins):
     '''
-    Get all the organizations of a user from GitHub object.
+    Determine which backup subdirectory a repository belongs in.
+
+    Repos owned by ``user`` are 'personal'. For repos owned by someone else,
+    the user must be a contributor for the repo to be backed up: those owned by
+    one of the user's organizations are filed under the org login, and the rest
+    under 'contributed'.
 
     Args:
-        g: (object) GitHub object generated by pygithub
+        repo: (github.Repository) repository to classify
+        user: (str) login of the authenticated user
+        org_logins: (list) organization logins the user belongs to
+
     Returns:
-        orgs: (dict) dictionary containing organization data
+        (str or None) the category/subdirectory name, or None if the repo
+        should be skipped (user is not the owner or a contributor)
     '''
 
-    orgs = {'org_list':[]}
-    for org in g.get_user().get_orgs():
-        login = org.login
-        orgs['org_list'].append(login)
-        orgs['num_{}_repos'.format(login)] = 0
-    return orgs
+    owner = repo.owner.login
+
+    if owner == user:
+        return 'personal'
+
+    # Only back up other people's repos the user has actually contributed to.
+    if user not in (c.login for c in repo.get_contributors()):
+        return None
+
+    return owner if owner in org_logins else 'contributed'
 
 
-def print_summary(num_personal_repos, num_contributed_repos, orgs, exceptions):
+def print_summary(counts, org_logins, exceptions):
     '''
-    Prints the summary of the backup process
+    Print a human-readable summary of the backup run.
 
     Args:
-        num_personal_repos: (int) number of personal repositories
-        num_contributed_repos: (int) number of contributed repositories
-        orgs: (dict) dictionary containing organization data
-        exceptions: (list) repos with issues and not cloned
+        counts: (dict) maps each category ('personal', 'contributed', and one
+            entry per organization login) to the number of repos backed up
+        org_logins: (list) organization logins, used to order the org lines
+        exceptions: (list) names of repos that failed to clone or update
+
     Returns:
         None
     '''
 
+    divider = '=' * 38
+
     print('\n\nFinished GitHub backup!\n')
-    print('\n\n======================================\n')
-    print('\tSummary\n')
-    print('======================================\n')
-    print('Updated {} personal repos'.format(num_personal_repos))
-    print('Updated {} contributed repos'.format(num_contributed_repos))
+    print(divider)
+    print('\tSummary')
+    print(divider)
+    print(f"Updated {counts['personal']} personal repos")
+    print(f"Updated {counts['contributed']} contributed repos")
 
-    for org in orgs['org_list']:
-        print('Updated {} {} repos'.format(orgs['num_{}_repos'.format(org)], 
-            org))
-    
-    N = len(exceptions)
-    if N:
-        print('\n======================================\n')
-        print('Following repositories were not cloned/updated.\nPlease '
-            'manually backup them.\n')
-        
-        for i, repo in enumerate(exceptions):
-            print('{}. {}'.format(i + 1, repo))
+    for org in org_logins:
+        print(f'Updated {counts[org]} {org} repos')
 
-    print('\n======================================\n')
+    if exceptions:
+        print(f'\n{divider}')
+        print('The following repositories were not cloned/updated.')
+        print('Please back them up manually.\n')
+        for i, name in enumerate(exceptions, 1):
+            print(f'{i}. {name}')
 
-    return
+    print(f'\n{divider}\n')
 
 
 def main(path):
 
     # !!! DO NOT EVER USE HARD-CODED VALUES HERE !!!
     # Instead, set and test environment variables, see README for info
-    GH_ACCSS_TKN = os.environ['GH_ACCSS_TKN']
-    g = Github(GH_ACCSS_TKN)
+    token = os.environ.get('GH_ACCSS_TKN')
+    if not token:
+        sys.exit('Error: environment variable GH_ACCSS_TKN is not set. '
+                 'See the README for setup instructions.')
 
-    user = g.get_user().login
-    repos = g.get_user().get_repos()
+    g = Github(token)
+    me = g.get_user()
+    user = me.login
+    org_logins = [org.login for org in me.get_orgs()]
 
     path = parse_path(path)
+    os.makedirs(path, exist_ok=True)
 
-    os.chdir(path)
-    orgs = get_orgs(g)
-    orgs_list = orgs['org_list']
+    counts = {'personal': 0, 'contributed': 0}
+    counts.update({org: 0 for org in org_logins})
+    exceptions = []
 
-    num_personal_repos = 0
-    num_contributed_repos = 0
-    exception_list = []
-    for repo in repos:
-        owner = repo.owner.login
-        
+    for repo in me.get_repos():
         try:
-            os.chdir(path)
-            if owner == user:
-                print('\nOwned repo: {}'.format(repo.name))
-                sub_dir = get_sub_dir(path, 'personal')
-                num_personal_repos += 1
-                clone_or_update(repo, sub_dir)
+            category = classify_repo(repo, user, org_logins)
+            if category is None:
+                continue
 
-            else:
-                for mem in repo.get_contributors():
-                    if mem.login == user:
-                        if owner in orgs_list:
-                            print('\n{} repo: {}'.format(owner, repo.name))
-                            sub_dir = get_sub_dir(path, owner)
-                            orgs['num_{}_repos'.format(owner)] += 1
-                            clone_or_update(repo, sub_dir)
-                        else:
-                            print('\nContributed repo: {}'.format(repo.name))
-                            sub_dir = get_sub_dir(path, 'contributed')
-                            num_contributed_repos += 1
-                            clone_or_update(repo, sub_dir)
-        except:
-            print('Error cloning/updating {}'.format(repo.name))
-            exception_list.append(repo.name)
+            print(f'\n{category} repo: {repo.name}')
+            sub_dir = ensure_sub_dir(path, category)
+            clone_or_update(repo, sub_dir)
+            counts[category] += 1
+        except Exception as err:
+            print(f'Error cloning/updating {repo.name}: {err}')
+            exceptions.append(repo.name)
 
-
-    print_summary(num_personal_repos, num_contributed_repos, orgs,
-            exception_list)
+    print_summary(counts, org_logins, exceptions)
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
-        description=(
-            'Backsup all the repositories in GitHub to a local directory'))
+        description='Back up all of a user\'s GitHub repositories to a '
+                    'local directory')
     parser.add_argument(
         '-p', '--path',
-        default=['/mnt/d/Sync/GitHub'],
-        nargs=1,
-        help='specify the path for the backup')
-    parser.add_argument(
-        '-d', '--default',
-        default=False, action='store_true',
-        help='use default settings')
+        default='/mnt/d/Sync/GitHub',
+        help='destination path for the backup')
     args = parser.parse_args()
-    path = args.path[0]
 
-    if len(sys.argv) == 1:
-        parser.print_help()
-
-    print('Backup will be created in path {}'.format(path))
+    print(f'Backup will be created in path {args.path}')
     answer = input('Confirm the path [Y/n]: ')
-    if not answer == 'Y':
+    if answer.strip().lower() != 'y':
         sys.exit(1)
 
-    main(path)
+    main(args.path)
